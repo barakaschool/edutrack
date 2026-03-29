@@ -800,7 +800,7 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none!important}
   </div>
   <div class="card" style="padding:0;overflow:hidden">
     <div class="tbl-wrap">
-      <table><thead><tr><th>#</th><th>Adm No.</th><th>Full Name</th><th>Stream</th><th>Gender</th><th>DOB</th><th>Guardian</th><th>Contact</th><th>Fee Balance</th><th>Actions</th></tr></thead>
+      <table><thead><tr><th>#</th><th>Adm No.</th><th>Full Name</th><th>Stream</th><th>Gender</th><th>Fee Balance</th><th>Actions</th></tr></thead>
       <tbody id="stu-tbody"></tbody></table>
     </div>
   </div>
@@ -1079,9 +1079,6 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none!important}
       <div class="fg"><label>Adm No.</label><input type="text" id="ms-adm" placeholder="Auto-generated"></div>
       <div class="fg"><label>Full Name</label><input type="text" id="ms-name" placeholder="Student full name"></div>
       <div class="fg"><label>Gender</label><select id="ms-gender"><option value="M">Male</option><option value="F">Female</option></select></div>
-      <div class="fg"><label>Date of Birth</label><input type="date" id="ms-dob"></div>
-      <div class="fg"><label>Guardian Name</label><input type="text" id="ms-guardian"></div>
-      <div class="fg"><label>Guardian Contact</label><input type="tel" id="ms-contact" placeholder="0700 000 000"></div>
     </div>
     <div class="mfoot"><button class="btn btn-outline" onclick="closeModal('modal-student')">Cancel</button><button class="btn btn-primary" onclick="saveStudent()">Save Student</button></div>
   </div>
@@ -1614,6 +1611,7 @@ function openEditSchoolName() {
   DB.settings.primaryName = trimmed;
   _fbChangedKeys.add('settings');
   saveLocal();
+  if (FIREBASE_ENABLED && window._firebase.dbReady) fbPushShard('settings', DB.settings);
   updateNavBrand();
   toast('School name updated ✓', 'success');
   addAudit('SETTINGS', `Updated primary school name to: ${trimmed}`);
@@ -2548,6 +2546,7 @@ function saveRCComment(sid, tid, type, text) {
   DB.editedComments[sid][tid][type] = text.trim();
   _fbChangedKeys.add('editedComments');
   saveLocal();
+  if (FIREBASE_ENABLED && window._firebase.dbReady) fbPushShard('editedComments', DB.editedComments);
   addAudit('COMMENT', `Edited ${type === 'tc' ? 'teacher' : 'principal'} comment for ${DB.students[sid]?.name}, Term ${tid}`);
 }
 
@@ -2795,7 +2794,7 @@ function parseFmiRows(rows) {
   document.getElementById('fmi-confirm-btn').disabled = matched.length === 0;
 }
 
-function confirmFeeImport() {
+async function confirmFeeImport() {
   if (!_fmiData || !_fmiData.matched.length) return;
   const { matched, g, stream, tid, tName } = _fmiData;
   if (!DB.fees) DB.fees = {};
@@ -2806,11 +2805,13 @@ function confirmFeeImport() {
   });
   _fbChangedKeys.add('fees');
   saveLocal();
+  // Push fees shard immediately so fee balances show on all devices at once
+  if (FIREBASE_ENABLED && window._firebase.dbReady) await fbPushShard('fees', DB.fees);
   document.getElementById('fmi-status').textContent = `✓ ${matched.length} balances imported`;
   toast(`Fee balances imported for ${matched.length} students ✓`, 'success');
   addAudit('FEE_IMPORT', `Imported fee balances — Grade ${g}${stream}, ${tName} — ${matched.length} students`);
   closeFeeImportModal();
-  renderStudents();
+  renderStudents(); // re-render immediately so fee column updates on screen
 }
 
 // ═══════════════════════════════════════════════════
@@ -2881,9 +2882,6 @@ function renderStudents() {
       <td style="font-weight:600;color:var(--text)">${s.name}</td>
       <td><span class="badge badge-blue">Stream ${s.stream}</span></td>
       <td><span class="badge ${s.gender === 'M' ? 'badge-blue' : 'badge-green'}">${s.gender === 'M' ? 'Male' : 'Female'}</span></td>
-      <td style="font-size:12px;color:var(--text3)">${s.dob ? new Date(s.dob).toLocaleDateString('en-KE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
-      <td style="font-size:12px;color:var(--text2)">${s.guardian || '—'}</td>
-      <td style="font-size:12px;font-family:var(--mono);color:var(--text3)">${s.contact || '—'}</td>
       <td style="text-align:center">${feeDisplay}</td>
       <td style="white-space:nowrap">
         <button class="btn btn-outline btn-xs" onclick="editStudent('${s.id}')">Edit</button>
@@ -2892,7 +2890,7 @@ function renderStudents() {
       </td>
     </tr>`;
   }).join('') :
-    `<tr><td colspan="10" style="text-align:center;padding:36px;color:var(--text4)">No students found.</td></tr>`;
+    `<tr><td colspan="7" style="text-align:center;padding:36px;color:var(--text4)">No students found.</td></tr>`;
 }
 
 function msGradeChange() {
@@ -2908,7 +2906,8 @@ function openAddStudent() {
   editStuId = null;
   document.getElementById('ms-grade').value = String(stuGrade);
   msGradeChange();
-  ['ms-name', 'ms-dob', 'ms-guardian', 'ms-contact'].forEach(id => document.getElementById(id).value = '');
+  const msNameEl = document.getElementById('ms-name');
+  if (msNameEl) msNameEl.value = '';
   document.getElementById('ms-gender').value = 'M';
   document.getElementById('mstu-title').textContent = 'Add Student';
   document.getElementById('modal-student').style.display = 'flex';
@@ -2923,9 +2922,6 @@ function editStudent(id) {
   document.getElementById('ms-adm').value = s.adm;
   document.getElementById('ms-name').value = s.name;
   document.getElementById('ms-gender').value = s.gender;
-  document.getElementById('ms-dob').value = s.dob || '';
-  document.getElementById('ms-guardian').value = s.guardian || '';
-  document.getElementById('ms-contact').value = s.contact || '';
   document.getElementById('mstu-title').textContent = 'Edit Student';
   document.getElementById('modal-student').style.display = 'flex';
 }
@@ -2936,18 +2932,18 @@ async function saveStudent() {
   const grade = document.getElementById('ms-grade').value;
   const stream = document.getElementById('ms-stream').value;
   const gender = document.getElementById('ms-gender').value;
-  const dob = document.getElementById('ms-dob').value;
-  const guardian = document.getElementById('ms-guardian').value.trim();
-  const contact = document.getElementById('ms-contact').value.trim();
   if (!adm || !name) { toast('Adm No. and Name are required', 'warn'); return; }
   if (!editStuId && DB.students[adm]) { toast('Admission number already exists', 'warn'); return; }
   if (editStuId) {
-    Object.assign(DB.students[editStuId], { adm, name, grade, stream, gender, dob, guardian, contact });
+    Object.assign(DB.students[editStuId], { adm, name, grade, stream, gender });
   } else {
-    DB.students[adm] = { id: adm, adm, name, grade, stream, gender, dob, guardian, contact };
+    DB.students[adm] = { id: adm, adm, name, grade, stream, gender };
     if (!DB.marks[adm]) DB.marks[adm] = {};
   }
+  _fbChangedKeys.add('students');
   saveLocal(); closeModal('modal-student'); renderStudents();
+  // Push students shard immediately to Firestore
+  if (FIREBASE_ENABLED && window._firebase.dbReady) fbPushShard('students', DB.students);
   toast('Student saved ✓', 'success');
   addAudit(editStuId ? 'EDIT_STUDENT' : 'ADD_STUDENT', `${editStuId ? 'Updated' : 'Added'} student: ${name} (${adm})`);
 }
@@ -2957,7 +2953,9 @@ async function deleteStudent(id) {
   if (!confirm(`Delete ${s?.name} and all their marks?`)) return;
   pushUndo(`Delete student ${s?.name}`, JSON.parse(JSON.stringify(DB)));
   delete DB.students[id]; delete DB.marks[id];
+  _fbChangedKeys.add('students');
   saveLocal(); renderStudents();
+  if (FIREBASE_ENABLED && window._firebase.dbReady) fbPushShard('students', DB.students);
   toast('Student deleted', 'warn');
   showUndo(`Deleted ${s?.name} — Undo available`);
   addAudit('DELETE_STUDENT', `Deleted: ${s?.name} (${id})`, 'delete');
@@ -3008,7 +3006,9 @@ async function saveTeacher() {
   if (!DB.teachers) DB.teachers = {};
   DB.teachers[id] = { id, name, assignments: asgn };
   if (editTchId && editTchId !== id) delete DB.teachers[editTchId];
+  _fbChangedKeys.add('teachers');
   saveLocal(); closeModal('modal-teacher'); renderTeachers();
+  if (FIREBASE_ENABLED && window._firebase.dbReady) fbPushShard('teachers', DB.teachers);
   toast('Teacher saved ✓', 'success');
   addAudit(editTchId ? 'EDIT_TEACHER' : 'ADD_TEACHER', `${editTchId ? 'Updated' : 'Added'} teacher: ${name} (${id})`);
 }
@@ -3017,7 +3017,10 @@ async function deleteTeacher(id) {
   const t = DB.teachers[id];
   if (!confirm(`Delete ${t?.name}?`)) return;
   pushUndo(`Delete teacher ${t?.name}`, JSON.parse(JSON.stringify(DB)));
-  delete DB.teachers[id]; saveLocal(); renderTeachers();
+  delete DB.teachers[id];
+  _fbChangedKeys.add('teachers');
+  saveLocal(); renderTeachers();
+  if (FIREBASE_ENABLED && window._firebase.dbReady) fbPushShard('teachers', DB.teachers);
   toast('Teacher deleted', 'warn'); showUndo(`Deleted ${t?.name} — Undo available`);
   addAudit('DELETE_TEACHER', `Deleted teacher: ${t?.name} (${id})`, 'delete');
 }
@@ -3082,6 +3085,7 @@ function saveActiveExam() {
   DB.settings.activeExam   = aeSel.value;
   _fbChangedKeys.add('settings');
   saveLocal();
+  if (FIREBASE_ENABLED && window._firebase.dbReady) fbPushShard('settings', DB.settings);
   toast(`Active exam set: ${termById(DB.settings.activeTermId)?.name} — ${aeSel.value} ✓`, 'success');
   addAudit('SETTINGS', `Active exam set to: ${termById(DB.settings.activeTermId)?.name} — ${aeSel.value}`);
 }
@@ -3110,7 +3114,10 @@ function saveStreams() {
     const inputs = document.querySelectorAll(`[id^="strm-${g}-"]`);
     DB.structure.streams[g] = [...inputs].map(el => el.value.trim()).filter(Boolean);
   });
-  saveLocal(); toast('Streams saved ✓', 'success'); addAudit('STREAMS', 'Updated stream configuration');
+  _fbChangedKeys.add('structure');
+  saveLocal();
+  if (FIREBASE_ENABLED && window._firebase.dbReady) fbPushShard('structure', DB.structure);
+  toast('Streams saved ✓', 'success'); addAudit('STREAMS', 'Updated stream configuration');
 }
 
 function renderTermsEditor() {
@@ -3153,7 +3160,10 @@ function saveTerms() {
     if (!DB.structure.weights[t.id]) DB.structure.weights[t.id] = {};
     t.exams.forEach(ex => { if (!DB.structure.weights[t.id][ex]) DB.structure.weights[t.id][ex] = Math.round(100 / t.exams.length); });
   });
-  saveLocal(); toast('Terms saved ✓', 'success'); addAudit('TERMS', 'Updated terms and exams'); renderWeightsEditor();
+  _fbChangedKeys.add('structure');
+  saveLocal();
+  if (FIREBASE_ENABLED && window._firebase.dbReady) fbPushShard('structure', DB.structure);
+  toast('Terms saved ✓', 'success'); addAudit('TERMS', 'Updated terms and exams'); renderWeightsEditor();
 }
 
 function renderSubjectsEditor() {
@@ -3174,7 +3184,10 @@ function removeSubject(i) {
 function saveSubjects() {
   const inputs = document.querySelectorAll(`[id^="subj-${settingsSubjGrade}-"]`);
   DB.structure.subjects[settingsSubjGrade] = [...inputs].map(el => el.value.trim()).filter(Boolean);
-  saveLocal(); toast('Subjects saved ✓', 'success'); addAudit('SUBJECTS', `Updated subjects for Grade ${settingsSubjGrade}`);
+  _fbChangedKeys.add('structure');
+  saveLocal();
+  if (FIREBASE_ENABLED && window._firebase.dbReady) fbPushShard('structure', DB.structure);
+  toast('Subjects saved ✓', 'success'); addAudit('SUBJECTS', `Updated subjects for Grade ${settingsSubjGrade}`);
 }
 
 // ── Grade Range Cutoffs editor ──────────────────────────────────────────────
@@ -3255,7 +3268,9 @@ function saveGradeRanges() {
   if (!DB.structure.gradeRanges) DB.structure.gradeRanges = {};
   DB.structure.gradeRanges.primary = { EE:pEE, ME:pME, AE:pAE };
   DB.structure.gradeRanges.junior  = { EE1:jEE1,EE2:jEE2,ME1:jME1,ME2:jME2,AE1:jAE1,AE2:jAE2,BE1:jBE1 };
+  _fbChangedKeys.add('structure');
   saveLocal();
+  if (FIREBASE_ENABLED && window._firebase.dbReady) fbPushShard('structure', DB.structure);
   toast('Grade ranges saved ✓ — all results updated', 'success');
   addAudit('GRADE_RANGES', `Updated grade cutoffs — Primary EE≥${pEE}/ME≥${pME}/AE≥${pAE} · Junior EE1≥${jEE1}/EE2≥${jEE2}/ME1≥${jME1}`);
 }
@@ -3301,7 +3316,10 @@ function saveWeights() {
     if (Math.round(total) !== 100) { toast(`${t.name} weights must total 100% (currently ${total}%)`, 'warn'); allOk = false; }
   });
   if (!allOk) return;
-  saveLocal(); toast('Weights saved ✓', 'success'); addAudit('WEIGHTS', 'Updated exam weights');
+  _fbChangedKeys.add('structure');
+  saveLocal();
+  if (FIREBASE_ENABLED && window._firebase.dbReady) fbPushShard('structure', DB.structure);
+  toast('Weights saved ✓', 'success'); addAudit('WEIGHTS', 'Updated exam weights');
 }
 
 function saveSchoolSettings() {
@@ -3311,7 +3329,9 @@ function saveSchoolSettings() {
   GRADES.forEach(g => {
     const el = document.getElementById('set-ct' + g); if (el) DB.settings['ct' + g] = el.value;
   });
+  _fbChangedKeys.add('settings');
   saveLocal(); updateNavBrand();
+  if (FIREBASE_ENABLED && window._firebase.dbReady) fbPushShard('settings', DB.settings);
   toast('School settings saved ✓', 'success'); addAudit('SETTINGS', 'Updated school settings');
 }
 
@@ -3321,7 +3341,9 @@ function savePasswords() {
   if (ap) DB.settings.adminPwd = ap;
   if (tp) DB.settings.teacherPwd = tp;
   if (!ap && !tp) { toast('Enter at least one new password', 'warn'); return; }
+  _fbChangedKeys.add('settings');
   saveLocal(); document.getElementById('set-admin-pwd').value = ''; document.getElementById('set-teacher-pwd').value = '';
+  if (FIREBASE_ENABLED && window._firebase.dbReady) fbPushShard('settings', DB.settings);
   toast('Passwords updated ✓', 'success'); addAudit('SECURITY', 'Passwords updated');
 }
 
@@ -3329,10 +3351,22 @@ function uploadLogo(input) {
   const file = input.files[0]; if (!file) return;
   if (file.size > 500000) { toast('Image too large — max 500KB', 'warn'); return; }
   const reader = new FileReader();
-  reader.onload = e => { DB.settings.logo = e.target.result; saveLocal(); renderSettings(); toast('Logo uploaded ✓', 'success'); addAudit('LOGO', 'School logo updated'); };
+  reader.onload = e => {
+    DB.settings.logo = e.target.result;
+    _fbChangedKeys.add('settings');
+    saveLocal();
+    if (FIREBASE_ENABLED && window._firebase.dbReady) fbPushShard('settings', DB.settings);
+    renderSettings(); toast('Logo uploaded ✓', 'success'); addAudit('LOGO', 'School logo updated');
+  };
   reader.readAsDataURL(file);
 }
-function clearLogo() { DB.settings.logo = ''; saveLocal(); renderSettings(); toast('Logo removed', 'warn'); }
+function clearLogo() {
+  DB.settings.logo = '';
+  _fbChangedKeys.add('settings');
+  saveLocal();
+  if (FIREBASE_ENABLED && window._firebase.dbReady) fbPushShard('settings', DB.settings);
+  renderSettings(); toast('Logo removed', 'warn');
+}
 
 function resetMarks() {
   const g = document.getElementById('reset-grade').value;
@@ -3672,6 +3706,7 @@ async function confirmImportStudents() {
     if (!DB.marks[s.adm]) DB.marks[s.adm] = {};
   });
   saveLocal();
+  if (FIREBASE_ENABLED && window._firebase.dbReady) fbPushShard('students', DB.students);
   document.getElementById('ims-status').textContent = `✓ ${imsData.toAdd.length} students imported`;
   toast(`${imsData.toAdd.length} students imported ✓`, 'success');
   addAudit('IMPORT_STUDENTS', `Imported ${imsData.toAdd.length} students to Grade ${imsData.g}, Stream ${imsData.stream}`);
@@ -3822,9 +3857,11 @@ async function fbInit() {
     setDbIndicator(true, 'Cloud ✓');
     console.info('[EduTrack] Firebase connected — per-shard marks architecture active');
 
-    await fbSyncDown();       // pull main doc + all marks shards
-    fbListenLive();           // watch main doc (settings/students/teachers)
-    fbListenMarkShards();     // watch every grade+stream marks shard
+    await fbSyncDown();           // pull main doc + all marks shards
+    await fbPullAllDataShards();  // pull students/teachers/fees/settings/structure shards
+    fbListenLive();               // watch main doc
+    fbListenMarkShards();         // watch every grade+stream marks shard
+    fbListenDataShards();         // watch students/teachers/fees/settings/structure shards
     // Mark initial sync as complete — listeners can now show live-update toasts
     _fbInitialSyncDone = true;
 
@@ -3933,6 +3970,101 @@ async function fbPushMarksShard(g, s) {
     setDbIndicator(false, 'Save error');
     toast('⚠ Cloud save failed — marks kept locally. Please try again.', 'warn');
   }
+}
+
+// ── Generic shard push for non-marks data ────────────────────────────────────
+// Used by students, teachers, settings, structure, fees.
+// Each gets its own Firestore sub-document under schools/{id}/data/{key}
+// so concurrent saves of different data types never conflict.
+async function fbPushShard(key, data) {
+  if (!window._firebase.dbReady) return;
+  try {
+    const { doc, collection, setDoc } = window._firebase._fns;
+    const ref = doc(collection(window._firebase._db, 'schools', FB_DOC_ID, 'data'), key);
+    const ts = Date.now();
+    await setDoc(ref, fbClean({ _key: key, _ts: ts, _savedBy: currentUser?.name || 'admin', data }), { merge: false });
+    setDbIndicator(true, 'Saved ✓');
+    console.info('[EduTrack] Shard pushed: ' + key + ' by ' + (currentUser?.name || '?'));
+  } catch (err) {
+    console.error('[EduTrack] Shard push error (' + key + '):', err);
+    setDbIndicator(false, 'Save error');
+    toast('⚠ Cloud save failed for ' + key + ' — kept locally', 'warn');
+  }
+}
+
+// ── Merge a data shard into DB ────────────────────────────────────────────────
+function mergeDataShard(key, data) {
+  if (!data) return;
+  switch(key) {
+    case 'students':  DB.students  = { ...DB.students,  ...data }; break;
+    case 'teachers':  DB.teachers  = { ...DB.teachers,  ...data }; break;
+    case 'fees':      DB.fees      = { ...DB.fees,      ...data }; break;
+    case 'settings':  DB.settings  = { ...DB.settings,  ...data }; break;
+    case 'structure': DB.structure = { ...DB.structure, ...data }; break;
+    case 'editedComments': DB.editedComments = { ...DB.editedComments, ...data }; break;
+  }
+}
+
+// ── Pull all data shards on login ─────────────────────────────────────────────
+async function fbPullAllDataShards() {
+  if (!window._firebase.dbReady) return;
+  try {
+    const { getDocs, collection } = window._firebase._fns;
+    const dataCol = collection(window._firebase._db, 'schools', FB_DOC_ID, 'data');
+    const allShards = await getDocs(dataCol);
+    allShards.forEach(snap => {
+      if (!snap.exists()) return;
+      const d = snap.data();
+      if (d._key && d.data) mergeDataShard(d._key, d.data);
+    });
+    console.info('[EduTrack] All data shards pulled');
+  } catch (err) {
+    console.error('[EduTrack] Data shard pull error:', err);
+  }
+}
+
+// ── Live listeners for data shards ───────────────────────────────────────────
+// Each key (students, teachers, fees, settings, structure) gets its own listener.
+// When admin updates teachers on one device, all other devices update instantly.
+let _fbDataUnsubs = [];
+const DATA_SHARD_KEYS = ['students', 'teachers', 'fees', 'settings', 'structure', 'editedComments'];
+
+function fbListenDataShards() {
+  if (!window._firebase.dbReady) return;
+  _fbDataUnsubs.forEach(u => u());
+  _fbDataUnsubs = [];
+  const { doc, collection, onSnapshot } = window._firebase._fns;
+  DATA_SHARD_KEYS.forEach(key => {
+    const ref = doc(collection(window._firebase._db, 'schools', FB_DOC_ID, 'data'), key);
+    const unsub = onSnapshot(ref, snap => {
+      if (!snap.exists()) return;
+      const d = snap.data();
+      const shardTs = d._ts || 0;
+      const savedBy = d._savedBy || 'another device';
+      // Only process if this is a live update (initial sync already done)
+      if (!_fbInitialSyncDone) return;
+      mergeDataShard(key, d.data);
+      saveLocal();
+      console.info('[EduTrack] Live data update: ' + key + ' from ' + savedBy);
+      if (savedBy !== (currentUser?.name || '')) {
+        const label = { students:'Students', teachers:'Teachers', fees:'Fee Balances', settings:'Settings', structure:'Academic Structure', editedComments:'Comments' }[key] || key;
+        toast('📡 ' + label + ' updated by ' + savedBy, '');
+        // Refresh relevant pages
+        const activePage = document.querySelector('.nav-item.active')?.dataset.page || 'dashboard';
+        const pageMap = {
+          students: ['students'],
+          teachers: ['teachers'],
+          fees: ['students'],
+          settings: ['settings', 'dashboard'],
+          structure: ['settings', 'marks', 'results', 'dashboard'],
+          editedComments: ['reportcard']
+        };
+        const refreshPages = pageMap[key] || [];
+        if (refreshPages.includes(activePage)) nav(activePage);
+      }
+    }, err => console.error('[EduTrack] Data shard listener error (' + key + '):', err));
+    _fbDataUnsubs.push(unsub);
+  });
 }
 
 // ── Live listener — main school document (settings, students, teachers) ───────
